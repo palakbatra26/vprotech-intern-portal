@@ -14,16 +14,239 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      domain_cutoffs: {
+        Row: {
+          cutoff_marks: number
+          domain: string
+          id: string
+          updated_at: string
+        }
+        Insert: {
+          cutoff_marks?: number
+          domain: string
+          id?: string
+          updated_at?: string
+        }
+        Update: {
+          cutoff_marks?: number
+          domain?: string
+          id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      exams: {
+        Row: {
+          correct_count: number
+          created_at: string
+          disqualified: boolean
+          disqualified_reason: string | null
+          domain: string
+          id: string
+          questions_shown: Json
+          score: number
+          selected_answers: Json
+          started_at: string
+          status: string
+          submitted_at: string | null
+          total_marks: number
+          user_id: string
+          violations: number
+          wrong_count: number
+        }
+        Insert: {
+          correct_count?: number
+          created_at?: string
+          disqualified?: boolean
+          disqualified_reason?: string | null
+          domain: string
+          id?: string
+          questions_shown?: Json
+          score?: number
+          selected_answers?: Json
+          started_at?: string
+          status?: string
+          submitted_at?: string | null
+          total_marks?: number
+          user_id: string
+          violations?: number
+          wrong_count?: number
+        }
+        Update: {
+          correct_count?: number
+          created_at?: string
+          disqualified?: boolean
+          disqualified_reason?: string | null
+          domain?: string
+          id?: string
+          questions_shown?: Json
+          score?: number
+          selected_answers?: Json
+          started_at?: string
+          status?: string
+          submitted_at?: string | null
+          total_marks?: number
+          user_id?: string
+          violations?: number
+          wrong_count?: number
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          application_id: string
+          city: string
+          college_name: string
+          course: string
+          created_at: string
+          crn: string
+          email: string
+          full_name: string
+          has_attempted: boolean
+          id: string
+          phone: string
+          selected_domain: string | null
+          semester: string
+          updated_at: string
+          urn: string
+          user_id: string
+        }
+        Insert: {
+          application_id: string
+          city: string
+          college_name: string
+          course: string
+          created_at?: string
+          crn: string
+          email: string
+          full_name: string
+          has_attempted?: boolean
+          id?: string
+          phone: string
+          selected_domain?: string | null
+          semester: string
+          updated_at?: string
+          urn: string
+          user_id: string
+        }
+        Update: {
+          application_id?: string
+          city?: string
+          college_name?: string
+          course?: string
+          created_at?: string
+          crn?: string
+          email?: string
+          full_name?: string
+          has_attempted?: boolean
+          id?: string
+          phone?: string
+          selected_domain?: string | null
+          semester?: string
+          updated_at?: string
+          urn?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      questions: {
+        Row: {
+          correct_answer: string
+          created_at: string
+          difficulty: string
+          domain: string
+          id: string
+          options: Json
+          question_text: string
+        }
+        Insert: {
+          correct_answer: string
+          created_at?: string
+          difficulty?: string
+          domain: string
+          id?: string
+          options: Json
+          question_text: string
+        }
+        Update: {
+          correct_answer?: string
+          created_at?: string
+          difficulty?: string
+          domain?: string
+          id?: string
+          options?: Json
+          question_text?: string
+        }
+        Relationships: []
+      }
+      user_roles: {
+        Row: {
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          id?: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
+      violation_logs: {
+        Row: {
+          created_at: string
+          details: string | null
+          exam_id: string
+          id: string
+          user_id: string
+          violation_type: string
+        }
+        Insert: {
+          created_at?: string
+          details?: string | null
+          exam_id: string
+          id?: string
+          user_id: string
+          violation_type: string
+        }
+        Update: {
+          created_at?: string
+          details?: string | null
+          exam_id?: string
+          id?: string
+          user_id?: string
+          violation_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "violation_logs_exam_id_fkey"
+            columns: ["exam_id"]
+            isOneToOne: false
+            referencedRelation: "exams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
     }
     Enums: {
-      [_ in never]: never
+      app_role: "admin" | "user"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -150,6 +373,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      app_role: ["admin", "user"],
+    },
   },
 } as const
