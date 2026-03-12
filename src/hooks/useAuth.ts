@@ -1,86 +1,118 @@
 import { useState, useEffect, useCallback } from 'react';
-import { supabase } from '@/integrations/supabase/client';
-import type { User, Session } from '@supabase/supabase-js';
+import api from '@/services/api';
 
-export interface Profile {
+export interface User {
   id: string;
-  user_id: string;
-  full_name: string;
+  fullName: string;
   email: string;
   phone: string;
-  college_name: string;
+  collegeName: string;
   crn: string;
   urn: string;
   course: string;
   semester: string;
   city: string;
-  has_attempted: boolean;
-  selected_domain: string | null;
-  application_id: string;
+  applicationId: string;
+  role: string;
+}
+
+export interface ExamRequest {
+  _id: string;
+  requestedDomain: string;
+  requestStatus: 'pending' | 'approved' | 'rejected';
+  requestedAt: string;
+  approvedAt?: string;
+  rejectedAt?: string;
+  rejectionReason?: string;
+  examAvailableAt?: string;
+}
+
+export interface ExamAttempt {
+  _id: string;
+  domain: string;
+  attemptNumber: number;
+  status: 'in_progress' | 'completed' | 'disqualified';
+  aptitudeScore: number;
+  technicalScore: number;
+  totalScore: number;
+  correctCount: number;
+  wrongCount: number;
+  startedAt: string;
+  submittedAt?: string;
+  disqualified: boolean;
+  disqualifiedReason?: string;
 }
 
 export function useAuth() {
   const [user, setUser] = useState<User | null>(null);
-  const [session, setSession] = useState<Session | null>(null);
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  const fetchProfile = useCallback(async (userId: string) => {
-    const { data } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('user_id', userId)
-      .single();
-    setProfile(data as Profile | null);
-  }, []);
+  const fetchUser = useCallback(async () => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setLoading(false);
+      return;
+    }
 
-  const checkAdmin = useCallback(async (userId: string) => {
-    const { data } = await supabase.rpc('has_role', {
-      _user_id: userId,
-      _role: 'admin',
-    });
-    setIsAdmin(!!data);
+    try {
+      const response = await api.getMe();
+      if (response.user) {
+        setUser(response.user);
+      } else {
+        localStorage.removeItem('token');
+      }
+    } catch (error) {
+      console.error('Error fetching user:', error);
+      localStorage.removeItem('token');
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
-        setSession(session);
-        setUser(session?.user ?? null);
-        if (session?.user) {
-          setTimeout(() => {
-            fetchProfile(session.user.id);
-            checkAdmin(session.user.id);
-          }, 0);
-        } else {
-          setProfile(null);
-          setIsAdmin(false);
-        }
-        setLoading(false);
-      }
-    );
+    fetchUser();
+  }, [fetchUser]);
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchProfile(session.user.id);
-        checkAdmin(session.user.id);
-      }
-      setLoading(false);
-    });
-
-    return () => subscription.unsubscribe();
-  }, [fetchProfile, checkAdmin]);
-
-  const signOut = async () => {
-    await supabase.auth.signOut();
-    setUser(null);
-    setSession(null);
-    setProfile(null);
-    setIsAdmin(false);
+  const login = async (email: string, password: string) => {
+    const response = await api.login(email, password);
+    if (response.token) {
+      localStorage.setItem('token', response.token);
+      setUser(response.user);
+      return { success: true, user: response.user };
+    }
+    return { success: false, message: response.message };
   };
 
-  return { user, session, profile, isAdmin, loading, signOut, refetchProfile: () => user && fetchProfile(user.id) };
+  const adminLogin = async (email: string, password: string) => {
+    const response = await api.adminLogin(email, password);
+    if (response.token) {
+      localStorage.setItem('token', response.token);
+      setUser(response.user);
+      return { success: true, user: response.user };
+    }
+    return { success: false, message: response.message };
+  };
+
+  const register = async (data: any) => {
+    const response = await api.register(data);
+    return response;
+  };
+
+  const signOut = async () => {
+    localStorage.removeItem('token');
+    setUser(null);
+  };
+
+  const isAdmin = user?.role === 'admin';
+
+  return { 
+    user, 
+    loading, 
+    login, 
+    adminLogin, 
+    register, 
+    signOut, 
+    isAdmin,
+    refetch: fetchUser 
+  };
 }

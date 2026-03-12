@@ -3,7 +3,6 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -11,6 +10,7 @@ import { Form, FormField, FormItem, FormLabel, FormControl, FormMessage } from '
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
 import { Shield, Loader2 } from 'lucide-react';
+import { useAuth } from '@/hooks/useAuth';
 
 const signupSchema = z.object({
   fullName: z.string().trim().min(2, 'Full name is required').max(100),
@@ -31,6 +31,7 @@ type SignupValues = z.infer<typeof signupSchema>;
 const Signup = () => {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const { register } = useAuth();
 
   const form = useForm<SignupValues>({
     resolver: zodResolver(signupSchema),
@@ -43,32 +44,21 @@ const Signup = () => {
 
   const onSubmit = async (values: SignupValues) => {
     setLoading(true);
-    const { error } = await supabase.auth.signUp({
-      email: values.email,
-      password: values.password,
-      options: {
-        emailRedirectTo: window.location.origin,
-        data: {
-          full_name: values.fullName,
-          phone: values.phone,
-          college_name: values.collegeName,
-          crn: values.crn,
-          urn: values.urn,
-          course: values.course,
-          semester: values.semester,
-          city: values.city,
-        },
-      },
-    });
-    setLoading(false);
+    try {
+      const { agreeRules, ...registerData } = values;
+      const response = await register(registerData);
+      setLoading(false);
 
-    if (error) {
-      toast.error(error.message);
-      return;
+      if (response.userId) {
+        toast.success('Registration successful! Please log in.');
+        navigate('/login');
+      } else {
+        toast.error(response.message || 'Registration failed');
+      }
+    } catch (error) {
+      setLoading(false);
+      toast.error('An error occurred during registration');
     }
-
-    toast.success('Account created! You can now log in.');
-    navigate('/login');
   };
 
   const fields: { name: keyof SignupValues; label: string; type?: string; placeholder: string }[] = [
@@ -131,7 +121,6 @@ const Signup = () => {
                       <FormLabel>I agree to the exam rules</FormLabel>
                       <p className="text-sm text-muted-foreground">
                         I understand that tab switching, minimizing, or leaving fullscreen during the exam may result in disqualification.
-                        Only one attempt is allowed.
                       </p>
                     </div>
                     <FormMessage />

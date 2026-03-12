@@ -3,13 +3,13 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Form, FormField, FormItem, FormLabel, FormControl, FormMessage } from '@/components/ui/form';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
 import { Shield, Loader2 } from 'lucide-react';
+import { useAuth } from '@/hooks/useAuth';
 
 const loginSchema = z.object({
   email: z.string().trim().email('Invalid email'),
@@ -22,6 +22,7 @@ const Login = () => {
   const [loading, setLoading] = useState(false);
   const [forgotMode, setForgotMode] = useState(false);
   const navigate = useNavigate();
+  const { login } = useAuth();
 
   const form = useForm<LoginValues>({
     resolver: zodResolver(loginSchema),
@@ -30,22 +31,19 @@ const Login = () => {
 
   const onSubmit = async (values: LoginValues) => {
     setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({
-      email: values.email,
-      password: values.password,
-    });
-    setLoading(false);
+    try {
+      const result = await login(values.email, values.password);
+      setLoading(false);
 
-    if (error) {
-      toast.error(error.message);
-      return;
-    }
-
-    // Check if admin
-    const { data: { user } } = await supabase.auth.getUser();
-    if (user) {
-      const { data: isAdmin } = await supabase.rpc('has_role', { _user_id: user.id, _role: 'admin' });
-      navigate(isAdmin ? '/admin' : '/dashboard');
+      if (result.success) {
+        toast.success('Login successful!');
+        navigate(result.user.role === 'admin' ? '/admin' : '/dashboard');
+      } else {
+        toast.error(result.message || 'Login failed');
+      }
+    } catch (error) {
+      setLoading(false);
+      toast.error('An error occurred during login');
     }
   };
 
@@ -56,15 +54,25 @@ const Login = () => {
       return;
     }
     setLoading(true);
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/reset-password`,
-    });
-    setLoading(false);
-    if (error) {
-      toast.error(error.message);
-    } else {
-      toast.success('Password reset email sent! Check your inbox.');
+    try {
+      const response = await fetch('http://localhost:3001/api/auth/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      const data = await response.json();
+      setLoading(false);
+
+      if (!response.ok) {
+        toast.error(data.message || 'Failed to send reset email');
+        return;
+      }
+
+      toast.success(data.message || 'Password reset link sent to your email!');
       setForgotMode(false);
+    } catch (error) {
+      setLoading(false);
+      toast.error('An error occurred. Please try again.');
     }
   };
 

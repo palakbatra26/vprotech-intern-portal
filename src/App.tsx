@@ -6,6 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { ProtectedRoute, AdminRoute } from "@/components/auth/ProtectedRoute";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
+import AdminLogin from "./pages/AdminLogin";
 import Signup from "./pages/Signup";
 import ResetPassword from "./pages/ResetPassword";
 import Dashboard from "./pages/Dashboard";
@@ -13,6 +14,7 @@ import Profile from "./pages/Profile";
 import ExamInstructions from "./pages/ExamInstructions";
 import Exam from "./pages/Exam";
 import Result from "./pages/Result";
+import AdminDashboard from "./pages/AdminDashboard";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -26,6 +28,7 @@ const App = () => (
         <Routes>
           <Route path="/" element={<Index />} />
           <Route path="/login" element={<Login />} />
+          <Route path="/admin/login" element={<AdminLogin />} />
           <Route path="/signup" element={<Signup />} />
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
@@ -33,6 +36,7 @@ const App = () => (
           <Route path="/exam/instructions" element={<ProtectedRoute><ExamInstructions /></ProtectedRoute>} />
           <Route path="/exam" element={<ProtectedRoute><Exam /></ProtectedRoute>} />
           <Route path="/result" element={<ProtectedRoute><Result /></ProtectedRoute>} />
+          <Route path="/admin" element={<AdminRoute><AdminDashboard /></AdminRoute>} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>

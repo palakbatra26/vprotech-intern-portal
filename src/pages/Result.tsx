@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { supabase } from '@/integrations/supabase/client';
-import { useAuth } from '@/hooks/useAuth';
+import { useNavigate, useLocation } from 'react-router-dom';
+import api from '@/services/api';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -9,48 +8,58 @@ import { Shield, CheckCircle, XCircle, AlertTriangle, ArrowLeft, Loader2 } from 
 
 interface ExamResult {
   domain: string;
-  correct_count: number;
-  wrong_count: number;
-  score: number;
-  total_marks: number;
+  attemptNumber: number;
+  aptitudeScore: number;
+  technicalScore: number;
+  totalScore: number;
+  totalMarks: number;
+  correctCount: number;
+  wrongCount: number;
   status: string;
-  violations: number;
+  violationsCount: number;
   disqualified: boolean;
-  disqualified_reason: string | null;
-  submitted_at: string | null;
-  questions_shown: string[];
-  selected_answers: Record<string, string>;
+  disqualifiedReason: string | null;
+  submittedAt: string | null;
 }
 
 const Result = () => {
-  const { user, profile, loading: authLoading } = useAuth();
   const [result, setResult] = useState<ExamResult | null>(null);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
+  const location = useLocation();
+
+  const state = location.state as { attemptId?: string } | null;
+  const attemptId = state?.attemptId;
 
   useEffect(() => {
-    if (!user || authLoading) return;
-    const fetchResult = async () => {
-      const { data } = await supabase
-        .from('exams')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single();
-      if (data) {
-        setResult({
-          ...data,
-          questions_shown: data.questions_shown as string[],
-          selected_answers: data.selected_answers as Record<string, string>,
-        });
+    if (!attemptId) {
+      // Try to get from localStorage or navigate
+      const savedAttemptId = localStorage.getItem('lastAttemptId');
+      if (savedAttemptId) {
+        fetchResult(savedAttemptId);
+      } else {
+        setLoading(false);
       }
-      setLoading(false);
-    };
-    fetchResult();
-  }, [user, authLoading]);
+    } else {
+      localStorage.setItem('lastAttemptId', attemptId);
+      fetchResult(attemptId);
+    }
+  }, [attemptId]);
 
-  if (authLoading || loading) {
+  const fetchResult = async (id: string) => {
+    try {
+      const response = await api.getResult(id);
+      if (response.attempt) {
+        setResult(response.attempt);
+      }
+    } catch (error) {
+      console.error('Error fetching result:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -71,7 +80,7 @@ const Result = () => {
     );
   }
 
-  const attempted = Object.keys(result.selected_answers).length;
+  const attempted = result.correctCount + result.wrongCount;
   const statusConfig = {
     qualified: { icon: CheckCircle, color: 'text-green-600', bg: 'bg-green-50 dark:bg-green-950', label: 'Qualified ✅', border: 'border-green-200' },
     not_qualified: { icon: XCircle, color: 'text-orange-600', bg: 'bg-orange-50 dark:bg-orange-950', label: 'Not Qualified', border: 'border-orange-200' },
@@ -97,7 +106,7 @@ const Result = () => {
             </div>
             <CardTitle className="text-2xl">Assessment Result</CardTitle>
             <CardDescription>
-              {profile?.full_name} — {result.domain}
+              Attempt #{result.attemptNumber} — {result.domain}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
@@ -105,38 +114,55 @@ const Result = () => {
             <div className={`rounded-xl ${st.bg} ${st.border} border p-6 text-center`}>
               <StatusIcon className={`mx-auto h-12 w-12 ${st.color}`} />
               <h3 className={`mt-3 text-2xl font-bold ${st.color}`}>{st.label}</h3>
-              {result.disqualified_reason && (
-                <p className="mt-2 text-sm text-muted-foreground">{result.disqualified_reason}</p>
+              {result.disqualifiedReason && (
+                <p className="mt-2 text-sm text-muted-foreground">{result.disqualifiedReason}</p>
               )}
             </div>
 
             {/* Score Grid */}
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-              {[
-                { label: 'Score', value: `${result.score}/${result.total_marks}` },
-                { label: 'Attempted', value: `${attempted}/${result.total_marks}` },
-                { label: 'Correct', value: result.correct_count },
-                { label: 'Wrong', value: result.wrong_count },
-              ].map((item) => (
-                <div key={item.label} className="rounded-lg border p-4 text-center">
-                  <div className="text-2xl font-bold text-primary">{item.value}</div>
-                  <div className="text-xs text-muted-foreground mt-1">{item.label}</div>
-                </div>
-              ))}
+              <div className="rounded-lg border p-4 text-center">
+                <div className="text-2xl font-bold text-primary">{result.totalScore}/{result.totalMarks}</div>
+                <div className="text-xs text-muted-foreground mt-1">Total Score</div>
+              </div>
+              <div className="rounded-lg border p-4 text-center">
+                <div className="text-2xl font-bold text-blue-600">{attempted}/{result.totalMarks}</div>
+                <div className="text-xs text-muted-foreground mt-1">Attempted</div>
+              </div>
+              <div className="rounded-lg border p-4 text-center">
+                <div className="text-2xl font-bold text-green-600">{result.correctCount}</div>
+                <div className="text-xs text-muted-foreground mt-1">Correct</div>
+              </div>
+              <div className="rounded-lg border p-4 text-center">
+                <div className="text-2xl font-bold text-red-600">{result.wrongCount}</div>
+                <div className="text-xs text-muted-foreground mt-1">Wrong</div>
+              </div>
+            </div>
+
+            {/* Section Scores */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="rounded-lg border p-4 text-center">
+                <div className="text-xl font-bold">{result.aptitudeScore}/10</div>
+                <div className="text-sm text-muted-foreground">Aptitude Score</div>
+              </div>
+              <div className="rounded-lg border p-4 text-center">
+                <div className="text-xl font-bold">{result.technicalScore}/20</div>
+                <div className="text-sm text-muted-foreground">Technical Score</div>
+              </div>
             </div>
 
             {/* Details */}
             <div className="space-y-2">
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Violations</span>
-                <Badge variant={result.violations > 0 ? 'destructive' : 'secondary'}>
-                  {result.violations}
+                <Badge variant={result.violationsCount > 0 ? 'destructive' : 'secondary'}>
+                  {result.violationsCount}
                 </Badge>
               </div>
-              {result.submitted_at && (
+              {result.submittedAt && (
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Submitted At</span>
-                  <span>{new Date(result.submitted_at).toLocaleString()}</span>
+                  <span>{new Date(result.submittedAt).toLocaleString()}</span>
                 </div>
               )}
             </div>

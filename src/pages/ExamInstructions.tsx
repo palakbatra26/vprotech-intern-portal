@@ -25,7 +25,8 @@ const ExamInstructions = () => {
   const navigate = useNavigate();
   const { profile, loading } = useAuth();
 
-  const domain = (location.state as { domain?: string })?.domain;
+  const domain = (location.state as { domain?: string; requestId?: string })?.domain;
+  const requestId = (location.state as { domain?: string; requestId?: string })?.requestId;
 
   if (loading) {
     return (
@@ -105,7 +106,7 @@ const ExamInstructions = () => {
             <Button
               className="flex-1"
               disabled={!accepted}
-              onClick={() => navigate('/exam', { state: { domain } })}
+              onClick={() => navigate('/exam', { state: { domain, requestId } })}
             >
               Start Exam →
             </Button>

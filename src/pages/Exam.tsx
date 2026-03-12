@@ -1,34 +1,38 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useLocation, Navigate, useNavigate } from 'react-router-dom';
-import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import api from '@/services/api';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { EXAM_DURATION_MINUTES, TOTAL_QUESTIONS, MAX_VIOLATIONS } from '@/lib/constants';
 import { Clock, ChevronLeft, ChevronRight, Flag, Send, Loader2, AlertTriangle } from 'lucide-react';
 
 interface Question {
-  id: string;
-  question_text: string;
+  _id: string;
+  questionText: string;
   options: string[];
-  correct_answer: string;
+  categoryType: string;
 }
+
+const MAX_VIOLATIONS = 3;
 
 const Exam = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { user, profile, loading: authLoading, refetchProfile } = useAuth();
-  const domain = (location.state as { domain?: string })?.domain;
+  const { user, loading: authLoading } = useAuth();
+  
+  const state = location.state as { domain?: string; requestId?: string; attemptId?: string } | null;
+  const domain = state?.domain;
+  const requestId = state?.requestId;
 
   const [questions, setQuestions] = useState<Question[]>([]);
   const [currentIdx, setCurrentIdx] = useState(0);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [markedForReview, setMarkedForReview] = useState<Set<string>>(new Set());
-  const [timeLeft, setTimeLeft] = useState(EXAM_DURATION_MINUTES * 60);
-  const [examId, setExamId] = useState<string | null>(null);
+  const [timeLeft, setTimeLeft] = useState(30 * 60);
+  const [attemptId, setAttemptId] = useState<string | null>(state?.attemptId || null);
   const [violations, setViolations] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [examLoading, setExamLoading] = useState(true);
@@ -48,67 +52,38 @@ const Exam = () => {
 
   // Initialize exam
   useEffect(() => {
-    if (!user || !domain || authLoading) return;
+    if (!user || !requestId || authLoading) return;
 
     const initExam = async () => {
-      // Fetch random questions
-      const { data: qs, error } = await supabase
-        .from('questions')
-        .select('id, question_text, options, correct_answer')
-        .eq('domain', domain)
-        .limit(TOTAL_QUESTIONS);
-
-      if (error || !qs || qs.length === 0) {
-        toast.error('Failed to load questions. Please try again.');
-        navigate('/dashboard');
-        return;
-      }
-
-      // Shuffle questions and options
-      const shuffled = shuffle(qs).map((q) => ({
-        ...q,
-        options: shuffle(q.options as string[]),
-      })) as Question[];
-
-      setQuestions(shuffled);
-
-      // Create exam record
-      const { data: exam, error: examError } = await supabase
-        .from('exams')
-        .insert({
-          user_id: user.id,
-          domain,
-          questions_shown: shuffled.map((q) => q.id),
-          status: 'in_progress',
-        })
-        .select('id')
-        .single();
-
-      if (examError) {
-        toast.error('Failed to start exam');
-        navigate('/dashboard');
-        return;
-      }
-
-      // Mark profile as attempted
-      await supabase
-        .from('profiles')
-        .update({ has_attempted: true, selected_domain: domain })
-        .eq('user_id', user.id);
-
-      setExamId(exam.id);
-      setExamLoading(false);
-
-      // Request fullscreen
       try {
-        await document.documentElement.requestFullscreen();
-      } catch {
-        // Fullscreen may not be available
+        // Get questions from API
+        const response = await api.getQuestions(requestId);
+        
+        if (response.questions && response.questions.length > 0) {
+          const shuffled = shuffle(response.questions) as Question[];
+          setQuestions(shuffled);
+          setAttemptId(response.attemptId);
+          setExamLoading(false);
+
+          // Request fullscreen
+          try {
+            await document.documentElement.requestFullscreen();
+          } catch {
+            // Fullscreen may not be available
+          }
+        } else {
+          toast.error('Failed to load questions. Please try again.');
+          navigate('/dashboard');
+        }
+      } catch (error) {
+        console.error('Error loading exam:', error);
+        toast.error('Failed to load exam');
+        navigate('/dashboard');
       }
     };
 
     initExam();
-  }, [user, domain, authLoading, navigate]);
+  }, [user, requestId, authLoading, navigate]);
 
   // Timer
   useEffect(() => {
@@ -128,27 +103,23 @@ const Exam = () => {
 
   // Anti-cheat listeners
   useEffect(() => {
-    if (examLoading || submittedRef.current) return;
+    if (examLoading || submittedRef.current || !attemptId) return;
 
     const logViolation = async (type: string, details: string) => {
       violationsRef.current += 1;
       setViolations(violationsRef.current);
 
-      if (examId && user) {
-        await supabase.from('violation_logs').insert({
-          exam_id: examId,
-          user_id: user.id,
-          violation_type: type,
-          details,
-        });
-        await supabase.from('exams').update({ violations: violationsRef.current }).eq('id', examId);
-      }
-
-      if (violationsRef.current >= MAX_VIOLATIONS) {
-        setDisqualified(true);
-        handleSubmit(false, true);
-      } else {
-        toast.warning(`⚠️ Warning ${violationsRef.current}/${MAX_VIOLATIONS}: ${details}. Further violations will disqualify you.`);
+      try {
+        const response = await api.logViolation(attemptId, type, details);
+        
+        if (response.disqualified) {
+          setDisqualified(true);
+          handleSubmit(false, true);
+        } else {
+          toast.warning(`⚠️ Warning ${violationsRef.current}/${MAX_VIOLATIONS}: ${details}. Further violations will disqualify you.`);
+        }
+      } catch (error) {
+        console.error('Error logging violation:', error);
       }
     };
 
@@ -175,10 +146,10 @@ const Exam = () => {
       document.removeEventListener('fullscreenchange', handleFullscreen);
       window.removeEventListener('beforeunload', handleBeforeUnload);
     };
-  }, [examLoading, examId, user]);
+  }, [examLoading, attemptId]);
 
   const handleSubmit = useCallback(async (autoSubmit = false, isDQ = false) => {
-    if (submittedRef.current) return;
+    if (submittedRef.current || !attemptId) return;
     submittedRef.current = true;
     setSubmitting(true);
 
@@ -187,64 +158,35 @@ const Exam = () => {
       try { await document.exitFullscreen(); } catch {}
     }
 
-    // Calculate score
-    let correctCount = 0;
-    let wrongCount = 0;
-    questions.forEach((q) => {
-      const selected = answers[q.id];
-      if (selected) {
-        if (selected === q.correct_answer) correctCount++;
-        else wrongCount++;
+    try {
+      const response = await api.submitExam(attemptId);
+      
+      if (response.result) {
+        toast.success(autoSubmit ? 'Time is up! Exam auto-submitted.' : 'Exam submitted successfully!');
+        navigate('/result', { replace: true, state: { attemptId: response.result.attemptId } });
+      } else {
+        toast.error(response.message || 'Failed to submit exam');
+        setSubmitting(false);
+        submittedRef.current = false;
       }
-    });
-
-    const score = correctCount;
-    const finalDisqualified = isDQ || disqualified;
-
-    // Determine status based on cutoff
-    let status = 'not_qualified';
-    if (finalDisqualified) {
-      status = 'disqualified';
-    } else {
-      const { data: cutoff } = await supabase
-        .from('domain_cutoffs')
-        .select('cutoff_marks')
-        .eq('domain', domain!)
-        .single();
-      if (cutoff && score >= cutoff.cutoff_marks) {
-        status = 'qualified';
-      }
+    } catch (error) {
+      console.error('Error submitting exam:', error);
+      toast.error('Failed to submit exam');
+      setSubmitting(false);
+      submittedRef.current = false;
     }
-
-    // Update exam record
-    if (examId) {
-      await supabase.from('exams').update({
-        selected_answers: answers,
-        correct_count: correctCount,
-        wrong_count: wrongCount,
-        score,
-        status,
-        submitted_at: new Date().toISOString(),
-        disqualified: finalDisqualified,
-        disqualified_reason: finalDisqualified
-          ? `Exceeded ${MAX_VIOLATIONS} violations`
-          : null,
-      }).eq('id', examId);
-    }
-
-    if (refetchProfile) refetchProfile();
-    toast.success(autoSubmit ? 'Time is up! Exam auto-submitted.' : 'Exam submitted successfully!');
-    navigate('/result', { replace: true });
-  }, [answers, questions, examId, domain, disqualified, navigate, refetchProfile]);
+  }, [attemptId, navigate]);
 
   // Save answers periodically
   useEffect(() => {
-    if (!examId || examLoading) return;
+    if (!attemptId || examLoading) return;
     const interval = setInterval(async () => {
-      await supabase.from('exams').update({ selected_answers: answers }).eq('id', examId);
+      for (const [questionId, answer] of Object.entries(answers)) {
+        await api.saveAnswer(attemptId, questionId, answer);
+      }
     }, 30000);
     return () => clearInterval(interval);
-  }, [examId, answers, examLoading]);
+  }, [attemptId, answers, examLoading]);
 
   if (authLoading) {
     return (
@@ -254,7 +196,7 @@ const Exam = () => {
     );
   }
 
-  if (!domain || profile?.has_attempted && !examId) return <Navigate to="/dashboard" replace />;
+  if (!user || !domain) return <Navigate to="/dashboard" replace />;
 
   if (examLoading) {
     return (
@@ -303,36 +245,43 @@ const Exam = () => {
             <div className="flex items-center justify-between mb-4">
               <span className="text-sm text-muted-foreground">
                 Question {currentIdx + 1} of {questions.length}
+                <Badge variant="outline" className="ml-2">{currentQ.categoryType}</Badge>
               </span>
               <Button
-                variant={markedForReview.has(currentQ.id) ? 'default' : 'outline'}
+                variant={markedForReview.has(currentQ._id) ? 'default' : 'outline'}
                 size="sm"
                 onClick={() => {
                   setMarkedForReview((prev) => {
                     const next = new Set(prev);
-                    if (next.has(currentQ.id)) next.delete(currentQ.id);
-                    else next.add(currentQ.id);
+                    if (next.has(currentQ._id)) next.delete(currentQ._id);
+                    else next.add(currentQ._id);
                     return next;
                   });
                 }}
               >
                 <Flag className="h-3 w-3 mr-1" />
-                {markedForReview.has(currentQ.id) ? 'Marked' : 'Mark for Review'}
+                {markedForReview.has(currentQ._id) ? 'Marked' : 'Mark for Review'}
               </Button>
             </div>
 
-            <h2 className="text-xl font-semibold mb-6">{currentQ.question_text}</h2>
+            <h2 className="text-xl font-semibold mb-6">{currentQ.questionText}</h2>
 
             <div className="space-y-3">
               {currentQ.options.map((option, i) => (
                 <button
                   key={i}
                   className={`w-full text-left rounded-lg border p-4 transition-all hover:border-primary/50 hover:bg-accent ${
-                    answers[currentQ.id] === option
+                    answers[currentQ._id] === option
                       ? 'border-primary bg-primary/5 ring-2 ring-primary/20'
                       : ''
                   }`}
-                  onClick={() => setAnswers((prev) => ({ ...prev, [currentQ.id]: option }))}
+                  onClick={() => {
+                    setAnswers((prev) => ({ ...prev, [currentQ._id]: option }));
+                    // Save answer immediately
+                    if (attemptId) {
+                      api.saveAnswer(attemptId, currentQ._id, option);
+                    }
+                  }}
                 >
                   <span className="mr-3 inline-flex h-7 w-7 items-center justify-center rounded-full border text-sm font-medium">
                     {String.fromCharCode(65 + i)}
@@ -378,14 +327,14 @@ const Exam = () => {
           <div className="flex flex-wrap gap-2">
             {questions.map((q, i) => (
               <button
-                key={q.id}
+                key={q._id}
                 className={`flex h-9 w-9 items-center justify-center rounded-lg border text-sm font-medium transition-all ${
                   i === currentIdx
                     ? 'border-primary bg-primary text-primary-foreground'
-                    : answers[q.id]
+                    : answers[q._id]
                     ? 'border-primary/30 bg-primary/10 text-primary'
-                    : markedForReview.has(q.id)
-                    ? 'border-warning bg-warning/10 text-warning'
+                    : markedForReview.has(q._id)
+                    ? 'border-yellow-500 bg-yellow-100 text-yellow-700'
                     : 'hover:border-primary/30'
                 }`}
                 onClick={() => setCurrentIdx(i)}
@@ -397,7 +346,7 @@ const Exam = () => {
           <div className="mt-3 flex gap-4 text-xs text-muted-foreground">
             <span className="flex items-center gap-1"><span className="h-3 w-3 rounded bg-primary" /> Answered</span>
             <span className="flex items-center gap-1"><span className="h-3 w-3 rounded border" /> Unanswered</span>
-            <span className="flex items-center gap-1"><span className="h-3 w-3 rounded bg-warning/30" /> Review</span>
+            <span className="flex items-center gap-1"><span className="h-3 w-3 rounded bg-yellow-200" /> Review</span>
           </div>
         </div>
       </div>
